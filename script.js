@@ -1,5 +1,5 @@
 /**
- * EcoSelva 3D - Lógica Principal (Mapa OSM con modo oscuro CSS, Tarjetas inferiores, Búsqueda, Clima y Gestión Local)
+ * EcoSelva 3D - Lógica Principal (Corrección de calidad de imágenes, emojis de respaldo y gestión local)
  */
 
 let avistamientosGlobales = [];
@@ -13,10 +13,8 @@ document.addEventListener("DOMContentLoaded", () => {
 async function inicializarAppEcoSelva() {
   console.log("Iniciando EcoSelva 3D...");
   
-  // 1. Inicializar mapa
   mapaGlobalRef = L.map('map').setView([-26.8753, -54.6515], 8);
 
-  // Usar OpenStreetMap estándar (se oscurece automáticamente con el filtro CSS en style.css)
   L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
     attribution: '&copy; OpenStreetMap contributors',
     maxZoom: 19
@@ -24,16 +22,13 @@ async function inicializarAppEcoSelva() {
 
   marcadoresLayer = L.layerGroup().addTo(mapaGlobalRef);
 
-  // 2. Cargar clima y avistamientos
   cargarClimaMisiones();
   await cargarAvistamientos();
 
-  // 3. Configurar buscador y modales
   configurarBuscador();
   configurarModales();
 }
 
-// Consumo de la API de Open-Meteo
 async function cargarClimaMisiones() {
   try {
     const respuesta = await fetch('https://api.open-meteo.com/v1/forecast?latitude=-25.6953&longitude=-54.4367&current=temperature_2m,relative_humidity_2m,wind_speed_10m');
@@ -51,7 +46,6 @@ async function cargarClimaMisiones() {
   }
 }
 
-// Cargar avistamientos desde iNaturalist y localStorage
 async function cargarAvistamientos() {
   let avistamientosAPI = [];
   try {
@@ -82,13 +76,36 @@ async function cargarAvistamientos() {
   renderizarTodo(avistamientosGlobales);
 }
 
-// Renderizar tanto en el mapa como en las tarjetas inferiores
 function renderizarTodo(avistamientos) {
   renderizarMarcadoresMapa(avistamientos);
   renderizarTarjetasResultados(avistamientos);
 }
 
-// Renderizar marcadores en el mapa de Leaflet
+// Obtener la mejor URL de foto posible o retornar null para usar emoji
+function obtenerUrlFotoOptima(obs, taxon) {
+  let url = obs.photos?.[0]?.url || taxon.default_photo?.medium_url || taxon.default_photo?.square_url;
+  if (url && typeof url === 'string' && url.startsWith('http')) {
+    // Reemplazar miniaturas por versiones de mayor calidad
+    return url.replace('square', 'medium').replace('small', 'medium');
+  }
+  return null;
+}
+
+// Selector de emojis específicos según la especie
+function obtenerEmojiPorEspecie(nombre) {
+  const n = (nombre || '').toLowerCase();
+  if (n.includes('yaguaret') || n.includes('jaguar') || n.includes('puma') || n.includes('felino')) return '🐆';
+  if (n.includes('tucan') || n.includes('tucán') || n.includes('ave') || n.includes('pajaro') || n.includes('loro') || n.includes('duck') || n.includes('cormorant') || n.includes('stork') || n.includes('spoonbill')) return '🦜';
+  if (n.includes('coati') || n.includes('coatí')) return '🦝';
+  if (n.includes('mono') || n.includes('caraya') || n.includes('cai')) return '🐒';
+  if (n.includes('mariposa') || n.includes('morpho')) return '🦋';
+  if (n.includes('orquidea') || n.includes('orquídea') || n.includes('flor')) return '🌸';
+  if (n.includes('carpincho') || n.includes('tapir') || n.includes('roedor')) return '🦫';
+  if (n.includes('serpiente') || n.includes('yarara') || n.includes('yacare') || n.includes('reptil')) return '🐍';
+  if (n.includes('planta') || n.includes('arbol') || n.includes('hoja')) return '🌿';
+  return '🐾';
+}
+
 function renderizarMarcadoresMapa(avistamientos) {
   if (!marcadoresLayer) return;
   marcadoresLayer.clearLayers();
@@ -98,15 +115,14 @@ function renderizarMarcadoresMapa(avistamientos) {
 
     const [lng, lat] = obs.geojson.coordinates;
     const taxon = obs.taxon || {};
-
-    const fotoMini = obs.photos?.[0]?.url || taxon.default_photo?.square_url || "🐾";
-    const fotoGrande = obs.photos?.[0]?.url?.replace("square", "medium") || taxon.default_photo?.medium_url || fotoMini;
-
     const nombreComun = taxon.preferred_common_name || taxon.name || "Especie silvestre";
     const nombreCientifico = taxon.name || "Taxón sin clasificar";
     const categoria = taxon.iconic_taxon_name || "Biodiversidad";
     const lugar = obs.place_guess || "Misiones, Argentina";
     const fecha = obs.observed_on || "Fecha no registrada";
+
+    let fotoUrl = obtenerUrlFotoOptima(obs, taxon);
+    const emojiFallback = obtenerEmojiPorEspecie(nombreComun);
 
     const esLocal = obs.id && String(obs.id).startsWith('local_');
     const botonEliminarHTML = esLocal ? `
@@ -115,11 +131,9 @@ function renderizarMarcadoresMapa(avistamientos) {
       </button>
     ` : '';
 
-    const esEmoji = typeof fotoMini === 'string' && !fotoMini.startsWith('http') && !fotoMini.startsWith('data:');
-
-    const htmlMarcador = esEmoji 
-      ? `<div class="custom-species-marker" style="display:flex; align-items:center; justify-content:center; font-size:22px; background:#064e3b;">${fotoMini}</div>`
-      : `<div class="custom-species-marker"><img src="${fotoMini}" alt="${nombreComun}" loading="lazy"></div>`;
+    const htmlMarcador = fotoUrl 
+      ? `<div class="custom-species-marker"><img src="${fotoUrl}" alt="${nombreComun}" loading="lazy" onerror="this.parentElement.innerHTML='${emojiFallback}'"></div>`
+      : `<div class="custom-species-marker" style="display:flex; align-items:center; justify-content:center; font-size:22px; background:#064e3b;">${emojiFallback}</div>`;
 
     const iconoPersonalizado = L.divIcon({
       className: "",
@@ -129,9 +143,9 @@ function renderizarMarcadoresMapa(avistamientos) {
       popupAnchor: [0, -22]
     });
 
-    const mediaPopupHTML = esEmoji
-      ? `<div style="width:100%; height:110px; background:linear-gradient(135deg, #064e3b, #0f2922); display:flex; align-items:center; justify-content:center; font-size:48px; border-bottom:1px solid rgba(16,185,129,0.3);">${fotoGrande}</div>`
-      : `<img src="${fotoGrande}" alt="${nombreComun}" style="width:100%; height:130px; object-fit:cover; display:block;">`;
+    const mediaPopupHTML = fotoUrl
+      ? `<img src="${fotoUrl}" alt="${nombreComun}" style="width:100%; height:130px; object-fit:cover; display:block;" onerror="this.style.display='none';">`
+      : `<div style="width:100%; height:110px; background:linear-gradient(135deg, #064e3b, #0f2922); display:flex; align-items:center; justify-content:center; font-size:48px; border-bottom:1px solid rgba(16,185,129,0.3);">${emojiFallback}</div>`;
 
     const popupHTML = `
       <div class="popup-card">
@@ -154,7 +168,6 @@ function renderizarMarcadoresMapa(avistamientos) {
   });
 }
 
-// Renderizar tarjetas en el contenedor inferior (#resultados-container)
 function renderizarTarjetasResultados(avistamientos) {
   const container = document.getElementById('resultados-container');
   if (!container) return;
@@ -167,18 +180,18 @@ function renderizarTarjetasResultados(avistamientos) {
 
   avistamientos.forEach((obs) => {
     const taxon = obs.taxon || {};
-    const foto = obs.photos?.[0]?.url || taxon.default_photo?.medium_url || taxon.default_photo?.square_url || "🐾";
+    let fotoUrl = obtenerUrlFotoOptima(obs, taxon);
+    const emojiFallback = obtenerEmojiPorEspecie(taxon.preferred_common_name || taxon.name);
+
     const nombreComun = taxon.preferred_common_name || taxon.name || "Especie silvestre";
     const nombreCientifico = taxon.name || "Taxón sin clasificar";
     const categoria = taxon.iconic_taxon_name || "Biodiversidad";
     const lugar = obs.place_guess || "Misiones, Argentina";
     const fecha = obs.observed_on || "Fecha no registrada";
 
-    const esEmoji = typeof foto === 'string' && !foto.startsWith('http') && !foto.startsWith('data:');
-
-    const mediaHTML = esEmoji 
-      ? `<div class="w-full h-36 bg-gradient-to-br from-[#064e3b] to-[#0f2922] flex items-center justify-center text-5xl border-b border-[#1b343a]">${foto}</div>`
-      : `<img src="${foto}" alt="${nombreComun}" class="w-full h-36 object-cover" loading="lazy">`;
+    const mediaHTML = fotoUrl 
+      ? `<img src="${fotoUrl}" alt="${nombreComun}" class="w-full h-36 object-cover" loading="lazy" onerror="this.parentElement.innerHTML='<div class=\'w-full h-36 bg-gradient-to-br from-[#064e3b] to-[#0f2922] flex items-center justify-center text-5xl border-b border-[#1b343a]\'>${emojiFallback}</div>'">`
+      : `<div class="w-full h-36 bg-gradient-to-br from-[#064e3b] to-[#0f2922] flex items-center justify-center text-5xl border-b border-[#1b343a]">${emojiFallback}</div>`;
 
     const card = document.createElement('div');
     card.className = "bg-[#0f1d22] border border-[#1b343a] rounded-2xl overflow-hidden shadow flex flex-col justify-between hover:border-[#10b981] transition";
@@ -200,7 +213,6 @@ function renderizarTarjetasResultados(avistamientos) {
   });
 }
 
-// Configurar buscador en tiempo real
 function configurarBuscador() {
   const inputBusqueda = document.getElementById('input-busqueda');
   if (!inputBusqueda) return;
@@ -222,7 +234,6 @@ function configurarBuscador() {
   });
 }
 
-// Filtros por categoría desde los botones superiores
 window.filtrarEspecie = function(categoriaSeleccionada) {
   document.querySelectorAll('.cat-btn').forEach(btn => {
     btn.classList.remove('bg-[#10b981]', 'text-[#0b1315]', 'font-bold');
@@ -249,22 +260,6 @@ window.filtrarEspecie = function(categoriaSeleccionada) {
   }
 };
 
-// Selector de emojis específicos según la especie
-function obtenerEmojiPorEspecie(nombre) {
-  const n = (nombre || '').toLowerCase();
-  if (n.includes('yaguaret') || n.includes('jaguar') || n.includes('puma') || n.includes('felino')) return '🐆';
-  if (n.includes('tucan') || n.includes('tucán') || n.includes('ave') || n.includes('pajaro') || n.includes('loro')) return '🦜';
-  if (n.includes('coati') || n.includes('coatí')) return '🦝';
-  if (n.includes('mono') || n.includes('caraya') || n.includes('cai')) return '🐒';
-  if (n.includes('mariposa') || n.includes('morpho')) return '🦋';
-  if (n.includes('orquidea') || n.includes('orquídea') || n.includes('flor')) return '🌸';
-  if (n.includes('carpincho') || n.includes('tapir') || n.includes('roedor')) return '🦫';
-  if (n.includes('serpiente') || n.includes('yarara') || n.includes('yacare') || n.includes('reptil')) return '🐍';
-  if (n.includes('planta') || n.includes('arbol') || n.includes('hoja')) return '🌿';
-  return '🐾';
-}
-
-// Modal de confirmación para eliminar
 window.solicitarEliminacion = function(id) {
   if (mapaGlobalRef) mapaGlobalRef.closePopup();
   
@@ -299,7 +294,6 @@ function ejecutarEliminacion(id) {
   renderizarTodo(avistamientosGlobales);
 }
 
-// Configuración de modales (Registro y Eliminación)
 function configurarModales() {
   if (!document.getElementById('modal-registro-avistamiento')) {
     const modalRegistroHTML = `
