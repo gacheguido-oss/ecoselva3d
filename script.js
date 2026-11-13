@@ -1,5 +1,5 @@
 /**
- * EcoSelva 3D - Lógica Principal (Mapa con emojis representativos por especie y gestión local)
+ * EcoSelva 3D - Lógica Principal (Filtros corregidos, Clima Open-Meteo, Emojis y Gestión Local)
  */
 
 let avistamientosGlobales = [];
@@ -13,60 +13,82 @@ document.addEventListener("DOMContentLoaded", () => {
 async function inicializarAppEcoSelva() {
   console.log("Iniciando EcoSelva 3D...");
   
+  // Inicializar mapa centrado en Misiones
   mapaGlobalRef = L.map('map').setView([-26.8753, -54.6515], 8);
 
-  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-    attribution: '&copy; OpenStreetMap contributors'
+  // Mapa base CartoDB Dark Matter (oscuro, rápido y sin bloqueos)
+  L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+    attribution: '&copy; OpenStreetMap contributors &copy; CARTO',
+    subdomains: 'abcd',
+    maxZoom: 20
   }).addTo(mapaGlobalRef);
 
   marcadoresLayer = L.layerGroup().addTo(mapaGlobalRef);
 
+  // 1. Cargar datos meteorológicos de Open-Meteo
+  cargarClimaMisiones();
+
+  // 2. Cargar avistamientos (API + LocalStorage)
   await cargarAvistamientos();
+
+  // 3. Configurar modal de registro por clic en el mapa
   configurarModales();
 }
 
-// Cargar avistamientos desde la API y localStorage
-async function cargarAvistamientos() {
+// Consumo de la API de Open-Meteo para el clima de Misiones
+async function cargarClimaMisiones() {
   try {
-    const respuesta = await fetch('https://api.inaturalist.org/v1/observations?place_id=7191&per_page=30');
+    const respuesta = await fetch('https://api.open-meteo.com/v1/forecast?latitude=-25.6953&longitude=-54.4367&current=temperature_2m,relative_humidity_2m,wind_speed_10m');
     const data = await respuesta.json();
-    const avistamientosAPI = data.results || [];
-
-    let avistamientosLocales = JSON.parse(localStorage.getItem('misAvistamientosEcoSelva') || '[]');
-    
-    let modificado = false;
-    avistamientosLocales = avistamientosLocales.map((item, idx) => {
-      if (!item.id) {
-        item.id = `local_${idx}_${Date.now()}`;
-        modificado = true;
-      }
-      return item;
-    });
-    if (modificado) {
-      localStorage.setItem('misAvistamientosEcoSelva', JSON.stringify(avistamientosLocales));
+    if (data.current) {
+      document.getElementById('temp-display').textContent = `${data.current.temperature_2m}°C (Iguazú)`;
+      document.getElementById('humedad-val').textContent = `${data.current.relative_humidity_2m}%`;
+      document.getElementById('viento-val').textContent = `${data.current.wind_speed_10m} km/h`;
     }
-
-    avistamientosGlobales = [...avistamientosLocales, ...avistamientosAPI];
-    renderizarMarcadoresMapa(avistamientosGlobales);
   } catch (error) {
-    console.error("Error al cargar avistamientos de la API:", error);
-    let avistamientosLocales = JSON.parse(localStorage.getItem('misAvistamientosEcoSelva') || '[]');
-    avistamientosLocales = avistamientosLocales.map((item, idx) => {
-      if (!item.id) {
-        item.id = `local_${idx}_${Date.now()}`;
-      }
-      return item;
-    });
-    avistamientosGlobales = avistamientosLocales;
-    renderizarMarcadoresMapa(avistamientosGlobales);
+    console.error("Error al cargar clima:", error);
+    document.getElementById('temp-display').textContent = "24°C (Selva Misionera)";
+    document.getElementById('humedad-val').textContent = "85%";
+    document.getElementById('viento-val').textContent = "12 km/h";
   }
 }
 
-// Renderizar marcadores con imagen o emoji y tarjeta informativa
-function renderizarMarcadoresMapa(avistamientos) {
-  if (marcadoresLayer) {
-    marcadoresLayer.clearLayers();
+// Cargar avistamientos desde iNaturalist y localStorage con respaldo
+async function cargarAvistamientos() {
+  let avistamientosAPI = [];
+  try {
+    const respuesta = await fetch('https://api.inaturalist.org/v1/observations?place_id=7191&per_page=40');
+    if (respuesta.ok) {
+      const data = await respuesta.json();
+      avistamientosAPI = data.results || [];
+    }
+  } catch (error) {
+    console.warn("Aviso: No se pudo conectar con iNaturalist. Usando registros locales.", error);
   }
+
+  let avistamientosLocales = JSON.parse(localStorage.getItem('misAvistamientosEcoSelva') || '[]');
+  
+  // Asegurar ID único a registros antiguos
+  let modificado = false;
+  avistamientosLocales = avistamientosLocales.map((item, idx) => {
+    if (!item.id) {
+      item.id = `local_${idx}_${Date.now()}`;
+      modificado = true;
+    }
+    return item;
+  });
+  if (modificado) {
+    localStorage.setItem('misAvistamientosEcoSelva', JSON.stringify(avistamientosLocales));
+  }
+
+  avistamientosGlobales = [...avistamientosLocales, ...avistamientosAPI];
+  renderizarMarcadoresMapa(avistamientosGlobales);
+}
+
+// Renderizar marcadores en el mapa de Leaflet
+function renderizarMarcadoresMapa(avistamientos) {
+  if (!marcadoresLayer) return;
+  marcadoresLayer.clearLayers();
 
   avistamientos.forEach((obs) => {
     if (!obs.geojson || !obs.geojson.coordinates) return;
@@ -90,7 +112,6 @@ function renderizarMarcadoresMapa(avistamientos) {
       </button>
     ` : '';
 
-    // Detectar si el contenido es un emoji o una URL de imagen real
     const esEmoji = typeof fotoMini === 'string' && !fotoMini.startsWith('http') && !fotoMini.startsWith('data:');
 
     const htmlMarcador = esEmoji 
@@ -130,6 +151,35 @@ function renderizarMarcadoresMapa(avistamientos) {
   });
 }
 
+// Función global para filtrar especies por categoría desde los botones superiores
+window.filtrarEspecie = function(categoriaSeleccionada) {
+  // Actualizar diseño visual de los botones de categoría
+  document.querySelectorAll('.cat-btn').forEach(btn => {
+    btn.classList.remove('bg-[#10b981]', 'text-[#0b1315]', 'font-bold');
+    btn.classList.add('bg-[#14262c]', 'border', 'border-[#1b343a]', 'text-[#f0fdf4]');
+  });
+  event.target.classList.remove('bg-[#14262c]', 'border', 'border-[#1b343a]', 'text-[#f0fdf4]');
+  event.target.classList.add('bg-[#10b981]', 'text-[#0b1315]', 'font-bold');
+
+  if (categoriaSeleccionada === 'todos') {
+    renderizarMarcadoresMapa(avistamientosGlobales);
+  } else {
+    const filtrados = avistamientosGlobales.filter(obs => {
+      const catObs = (obs.taxon?.iconic_taxon_name || '').toLowerCase();
+      const nombreObs = (obs.taxon?.name || obs.taxon?.preferred_common_name || '').toLowerCase();
+      const catSel = categoriaSeleccionada.toLowerCase();
+
+      return catObs.includes(catSel) || 
+             (catSel === 'mamiferos' && (catObs.includes('mammalia') || catObs.includes('mammal'))) ||
+             (catSel === 'aves' && (catObs.includes('aves') || catObs.includes('bird'))) ||
+             (catSel === 'reptiles' && (catObs.includes('reptilia') || catObs.includes('reptile'))) ||
+             (catSel === 'plantas' && (catObs.includes('plantae') || catObs.includes('plant'))) ||
+             (catSel === 'insectos' && (catObs.includes('insecta') || catObs.includes('insect')));
+    });
+    renderizarMarcadoresMapa(filtrados);
+  }
+};
+
 // Selector de emojis específicos según la especie ingresada
 function obtenerEmojiPorEspecie(nombre) {
   const n = (nombre || '').toLowerCase();
@@ -145,7 +195,7 @@ function obtenerEmojiPorEspecie(nombre) {
   return '🐾';
 }
 
-// Función global para abrir el modal de confirmación personalizado
+// Función global para abrir el modal de confirmación personalizado de eliminación
 window.solicitarEliminacion = function(id) {
   if (mapaGlobalRef) mapaGlobalRef.closePopup();
   
@@ -153,6 +203,7 @@ window.solicitarEliminacion = function(id) {
   const btnAceptar = document.getElementById('conf-btn-aceptar');
   const btnCancelar = document.getElementById('conf-btn-cancelar');
 
+  if (!modalConf) return;
   modalConf.classList.remove('hidden');
 
   const nuevoAceptar = btnAceptar.cloneNode(true);
@@ -179,7 +230,7 @@ function ejecutarEliminacion(id) {
   renderizarMarcadoresMapa(avistamientosGlobales);
 }
 
-// Crear modales HTML flotantes (Registro y Confirmación de Eliminación)
+// Configuración de modales de registro y eliminación
 function configurarModales() {
   if (!document.getElementById('modal-registro-avistamiento')) {
     const modalRegistroHTML = `
@@ -213,7 +264,7 @@ function configurarModales() {
               <p class="text-[11px] text-gray-400 mt-1">Si no adjuntas foto, asignaremos un emoji representativo de la especie.</p>
             </div>
             <div class="flex justify-end space-x-3 pt-2">
-              <button type="button" id="btn-cancelar-avistamiento" class="px-4 py-2 bg-[#1b343a] hover:bg-[#23444c] rounded-xl font-semibold transition">Cancelar</button>
+              <button type="button" id="btn-cancelar-avistamiento" class="px-4 py-2 bg-[#1b343a] hover:bg-[#23444c] rounded-xl font-semibold transition text-gray-300">Cancelar</button>
               <button type="submit" class="px-4 py-2 bg-[#10b981] text-[#0b1315] rounded-xl font-semibold hover:bg-[#059669] transition">Guardar Avistamiento</button>
             </div>
           </form>
@@ -302,7 +353,6 @@ function configurarModales() {
       };
       reader.readAsDataURL(inputArchivo.files[0]);
     } else {
-      // Si no hay foto adjunta, se asigna el emoji específico para la especie descrita
       const emojiEspecifico = obtenerEmojiPorEspecie(nombre);
       procesarGuardado(emojiEspecifico);
     }
