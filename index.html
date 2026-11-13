@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>EcoSelva 3D - Explorador de la Selva Misionera</title>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- FontAwesome Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- Leaflet CSS para el Mapa -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <!-- Estilos personalizados -->
+    <link rel="stylesheet" href="style.css">
+</head>
+<body class="bg-[#0b1315] text-[#f0fdf4] min-h-screen flex flex-col font-sans">
+
+    <!-- Header Principal -->
+    <header class="bg-[#0f1d22] border-b border-[#1b343a] p-4 flex flex-wrap justify-between items-center shadow-md">
+        <div class="flex items-center space-x-3">
+            <div class="bg-[#10b981] p-2 rounded-xl text-[#0b1315] font-bold text-xl shadow-lg">
+                <i class="fa-solid fa-tree"></i>
+            </div>
+            <div>
+                <h1 class="text-xl font-bold tracking-wide text-[#f0fdf4]">EcoSelva 3D</h1>
+                <p class="text-xs text-[#a7f3d0]">Biodiversidad & Clima en Misiones</p>
+            </div>
+        </div>
+        
+        <!-- Widget del Clima (Open-Meteo) -->
+        <div id="weather-widget" class="bg-[#14262c] px-4 py-2 rounded-xl border border-[#1b343a] text-sm flex items-center space-x-2">
+            <i class="fa-solid fa-cloud-sun text-[#10b981]"></i>
+            <span id="temp-display">Cargando clima...</span>
+        </div>
+
+        <nav class="flex space-x-3 mt-2 sm:mt-0">
+            <button class="bg-[#10b981] text-[#0b1315] px-4 py-2 rounded-xl font-semibold flex items-center space-x-2 shadow">
+                <i class="fa-solid fa-compass"></i> <span>Explorador</span>
+            </button>
+            <button id="btn-favoritos" class="bg-[#14262c] border border-[#1b343a] hover:bg-[#1b343a] px-4 py-2 rounded-xl font-semibold flex items-center space-x-2 transition">
+                <i class="fa-solid fa-heart text-red-500"></i> <span id="contador-favs">Favoritos (0)</span>
+            </button>
+        </nav>
+    </header>
+
+    <!-- Contenido Principal -->
+    <main class="flex-1 p-4 max-w-7xl mx-auto w-full grid grid-cols-1 lg:grid-cols-3 gap-6">
+        
+        <!-- Columna Izquierda / Central: Buscador y Resultados -->
+        <section class="lg:col-span-2 flex flex-col space-y-4">
+            
+            <!-- Barra de Búsqueda y Filtros de Categorías -->
+            <div class="bg-[#0f1d22] p-4 rounded-2xl border border-[#1b343a] shadow">
+                <div class="relative mb-3">
+                    <span class="absolute inset-y-0 left-0 flex items-center pl-3 text-[#10b981]">
+                        <i class="fa-solid fa-magnifying-glass"></i>
+                    </span>
+                    <input type="text" id="input-busqueda" placeholder="Buscar especie (ej. Yaguareté, Tucán, Orquídea)..." 
+                        class="w-full pl-10 pr-4 py-2 bg-[#14262c] border border-[#1b343a] rounded-xl text-[#f0fdf4] placeholder-[#6ee7b7] focus:outline-none focus:border-[#10b981]">
+                </div>
+                
+                <!-- Botones de Categorías con Insectos incluidos -->
+                <div class="flex flex-wrap gap-2">
+                    <button onclick="filtrarEspecie('todos')" class="cat-btn px-3 py-1.5 bg-[#10b981] text-[#0b1315] font-medium rounded-lg text-sm transition">Todos</button>
+                    <button onclick="filtrarEspecie('mamiferos')" class="cat-btn px-3 py-1.5 bg-[#14262c] border border-[#1b343a] hover:bg-[#1b343a] rounded-lg text-sm transition">Mamíferos</button>
+                    <button onclick="filtrarEspecie('aves')" class="cat-btn px-3 py-1.5 bg-[#14262c] border border-[#1b343a] hover:bg-[#1b343a] rounded-lg text-sm transition">Aves</button>
+                    <button onclick="filtrarEspecie('reptiles')" class="cat-btn px-3 py-1.5 bg-[#14262c] border border-[#1b343a] hover:bg-[#1b343a] rounded-lg text-sm transition">Reptiles</button>
+                    <button onclick="filtrarEspecie('plantas')" class="cat-btn px-3 py-1.5 bg-[#14262c] border border-[#1b343a] hover:bg-[#1b343a] rounded-lg text-sm transition">Plantas</button>
+                    <button onclick="filtrarEspecie('insectos')" class="cat-btn px-3 py-1.5 bg-[#14262c] border border-[#1b343a] hover:bg-[#1b343a] rounded-lg text-sm transition">Insectos</button>
+                </div>
+            </div>
+
+            <!-- Mapa Interactivos de Leaflet -->
+            <div class="bg-[#0f1d22] p-4 rounded-2xl border border-[#1b343a] shadow flex flex-col">
+                <h2 class="text-md font-bold mb-3 flex items-center space-x-2 text-[#6ee7b7]">
+                    <i class="fa-solid fa-map-location-dot"></i> <span>Mapa de Avistamientos en Misiones</span>
+                </h2>
+                <div id="map" class="w-full h-[350px] rounded-xl border border-[#1b343a] z-0"></div>
+            </div>
+
+            <!-- Contenedor Dinámico de Resultados / Especies -->
+            <div id="resultados-container" class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <!-- Se rellena automáticamente con JS -->
+            </div>
+        </section>
+
+        <!-- Columna Derecha: Panel 3D y Panel de Estado -->
+        <aside class="flex flex-col space-y-4">
+            
+            <!-- Visor 3D Estilizado -->
+            <div class="bg-[#0f1d22] p-4 rounded-2xl border border-[#1b343a] shadow flex flex-col items-center">
+                <h2 class="text-md font-bold mb-2 flex items-center space-x-2 text-[#6ee7b7] self-start">
+                    <i class="fa-solid fa-globe"></i> <span>Planeta Selva 3D</span>
+                </h2>
+                <p class="text-xs text-gray-400 mb-3 self-start">Globo interactivo y partículas ambientales del ecosistema.</p>
+                
+                <!-- Canvas 3D Simulado / Interactivo -->
+                <div class="relative w-full h-[220px] bg-[#070e10] rounded-xl border border-[#1b343a] flex items-center justify-center overflow-hidden">
+                    <div class="absolute w-32 h-32 bg-[#10b981]/20 rounded-full blur-xl animate-pulse"></div>
+                    <div class="z-10 text-center">
+                        <i class="fa-solid fa-atom text-4xl text-[#10b981] animate-spin" style="animation-duration: 8s;"></i>
+                        <p class="text-xs text-[#a7f3d0] mt-2 font-mono">Renderizando ecosistema 3D...</p>
+                    </div>
+                </div>
+
+                <div class="w-full mt-4 space-y-2 text-xs border-t border-[#1b343a] pt-3">
+                    <div class="flex justify-between">
+                        <span class="text-gray-400">Humedad relativa:</span>
+                        <span id="humedad-val" class="font-bold text-[#10b981]">--%</span>
+                    </div>
+                    <div class="flex justify-between">
+                        <span class="text-gray-400">Viento (Selva Misionera):</span>
+                        <span id="viento-val" class="font-bold text-[#10b981]">-- km/h</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Panel Informativo / Académico -->
+            <div class="bg-[#0f1d22] p-4 rounded-2xl border border-[#1b343a] shadow text-xs space-y-2">
+                <h3 class="font-bold text-[#6ee7b7]"><i class="fa-solid fa-circle-info"></i> Sobre EcoSelva 3D</h3>
+                <p class="text-gray-300">Proyecto integrador desarrollado por Guido, Kevin y Gero para la exploración en tiempo real de la flora y fauna de Misiones mediante APIs abiertas.</p>
+            </div>
+        </aside>
+
+    </main>
+
+    <!-- Footer -->
+    <footer class="bg-[#0f1d22] border-t border-[#1b343a] text-center py-3 text-xs text-gray-400 mt-auto">
+        EcoSelva 3D &copy; 2026 - Universidad / Institución Educativa. Todos los derechos reservados.
+    </footer>
+
+    <!-- Leaflet JS -->
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <!-- Script principal -->
+    <script src="script.js"></script>
+</body>
+</html>
